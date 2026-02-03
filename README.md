@@ -2,7 +2,18 @@
 
 Server-side stale-while-revalidate caching for Rails.
 
-## Install
+## About
+Cache SWR stores a value plus two time windows: a fresh window and a stale window. Within the fresh window, values are returned immediately. Within the stale window, stale values are returned while a refresh runs in the background (or inline if you prefer).
+
+This pattern reduces tail latency and keeps caches warm without blocking callers.
+
+## Compatibility
+- Ruby 3.0+
+- ActiveSupport 6.1+
+- Works with ActiveSupport cache stores
+- Redis-backed stores are recommended when locking is enabled
+
+## Installation
 ```ruby
 # Gemfile
 
@@ -21,10 +32,26 @@ Rails integration adds `Rails.cache.fetch_swr`:
 Rails.cache.fetch_swr("expensive-key", ttl: 60, swr: 300) { ExpensiveQuery.call }
 ```
 
+If you are using an in-memory store, disable locking:
+```ruby
+Cache::SWR.fetch("key", ttl: 30, swr: 120, store: ActiveSupport::Cache::MemoryStore.new, lock: false) do
+  compute
+end
+```
+
+## Options
+- `ttl` (Integer) fresh window in seconds
+- `swr` (Integer) stale window in seconds
+- `refresh` (`:async`, `:sync`, or `nil`) refresh strategy
+- `lock` (Boolean) enable or disable locking
+- `lock_ttl` (Integer) lock expiry in seconds
+- `lock_client` Redis client for custom locking
+- `store` ActiveSupport cache store (defaults to `Rails.cache` when available)
+
 ## Notes
 - During the SWR window, stale values are served while a refresh runs.
-- Refresh can run in a background thread (`refresh: :async`) or inline (`refresh: :sync`).
-- By default, locking expects a Redis-backed store that exposes `redis`. Use `lock: false` for local in-memory use.
+- `refresh: :async` uses a background thread; choose `:sync` for deterministic refresh.
+- When `lock` is enabled, the store must expose `redis` or you must provide `lock_client`.
 
 ## Release
 ```bash
