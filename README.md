@@ -2,7 +2,6 @@
 
 [![Gem Version](https://img.shields.io/gem/v/cache-swr.svg)](https://rubygems.org/gems/cache-swr)
 [![Gem Downloads](https://img.shields.io/gem/dt/cache-swr.svg)](https://rubygems.org/gems/cache-swr)
-[![Gem Downloads (Monthly)](https://img.shields.io/gem/dm/cache-swr.svg)](https://rubygems.org/gems/cache-swr)
 [![Ruby](https://img.shields.io/badge/ruby-3.0%2B-cc0000.svg)](https://www.ruby-lang.org)
 [![CI](https://github.com/Elysium-Arc/cache-swr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Elysium-Arc/cache-swr/actions/workflows/ci.yml)
 [![GitHub Release](https://img.shields.io/github/v/release/Elysium-Arc/cache-swr.svg)](https://github.com/Elysium-Arc/cache-swr/releases)
@@ -27,6 +26,13 @@ This pattern reduces tail latency and keeps caches warm without blocking callers
 - ActiveSupport 6.1+
 - Works with ActiveSupport cache stores
 - Redis-backed stores are recommended when locking is enabled
+
+## Elysium Arc Reliability Toolkit
+Also check out these related gems:
+- Cache Coalescer: https://github.com/Elysium-Arc/cache-coalescer
+- Faraday Hedge: https://github.com/Elysium-Arc/faraday-hedge
+- Rack Idempotency Kit: https://github.com/Elysium-Arc/rack-idempotency-kit
+- Env Contract: https://github.com/Elysium-Arc/env-contract
 
 ## Installation
 ```ruby
