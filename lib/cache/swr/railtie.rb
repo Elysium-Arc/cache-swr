@@ -17,9 +17,8 @@ if defined?(Rails::Railtie)
 
       class Railtie < Rails::Railtie
         initializer "cache_swr.extend_cache" do
-          ActiveSupport.on_load(:active_support_cache) do
-            ::ActiveSupport::Cache::Store.include(Cache::SWR::StoreExtension)
-          end
+          require "active_support/cache"
+          ::ActiveSupport::Cache::Store.include(Cache::SWR::StoreExtension)
         end
       end
     end
