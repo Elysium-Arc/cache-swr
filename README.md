@@ -1,5 +1,8 @@
 # Cache SWR
 
+[![Gem Version](https://img.shields.io/gem/v/cache-swr.svg)](https://rubygems.org/gems/cache-swr)
+[![GitHub Release](https://img.shields.io/github/v/release/Elysium-Arc/cache-swr.svg)](https://github.com/Elysium-Arc/cache-swr/releases)
+
 Server-side stale-while-revalidate caching for Rails.
 
 ## About
