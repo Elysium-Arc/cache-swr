@@ -1,6 +1,11 @@
 # frozen_string_literal: true
 
 require "active_support/notifications"
+# ActiveSupport 8.1+ expects this constant when local cache is used.
+begin
+  require "active_support/isolated_execution_state"
+rescue LoadError
+end
 require "cache/swr/version"
 require "cache/swr/lock"
 
