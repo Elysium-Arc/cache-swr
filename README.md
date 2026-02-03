@@ -7,6 +7,12 @@ Cache SWR stores a value plus two time windows: a fresh window and a stale windo
 
 This pattern reduces tail latency and keeps caches warm without blocking callers.
 
+## Use Cases
+- Reduce p99 latency for expensive reads with background refreshes
+- Serve dashboards and reports without blocking on cache refresh
+- Keep hot data warm while avoiding request pileups
+- Provide smoother cache behavior under load
+
 ## Compatibility
 - Ruby 3.0+
 - ActiveSupport 6.1+
