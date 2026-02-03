@@ -15,6 +15,11 @@ RSpec.describe Cache::SWR do
     expect(described_class.default_store).to eq(store)
   end
 
+  it "raises when no block is provided" do
+    store = ActiveSupport::Cache::MemoryStore.new
+    expect { described_class.fetch("key", ttl: 1, swr: 1, store: store, lock: false) }.to raise_error(ArgumentError)
+  end
+
   it "returns cached value while fresh" do
     store = ActiveSupport::Cache::MemoryStore.new
     payload = { value: "v1", expires_at: Time.now + 10, stale_until: Time.now + 20 }
@@ -29,6 +34,29 @@ RSpec.describe Cache::SWR do
 
     value = described_class.fetch("key", ttl: 0.01, swr: 0.01, store: store, refresh: :sync, lock: false) { "fresh" }
     expect(value).to eq("fresh")
+  end
+
+  it "recomputes when stale window has passed and payload remains" do
+    store = Class.new do
+      def initialize
+        @data = {}
+      end
+
+      def read(key)
+        @data[key]
+      end
+
+      def write(key, value, expires_in: nil)
+        @data[key] = value
+        true
+      end
+    end.new
+
+    payload = { value: "old", expires_at: Time.now - 1, stale_until: Time.now - 0.5 }
+    store.write("key", payload)
+
+    value = described_class.fetch("key", ttl: 0.01, swr: 0.01, store: store, refresh: :sync, lock: false) { "new" }
+    expect(value).to eq("new")
   end
 
   it "serves stale while refreshing" do
@@ -99,6 +127,104 @@ RSpec.describe Cache::SWR do
     value = described_class.fetch("key", ttl: 1, swr: 1, store: store, lock_ttl: 1, lock_client: lock_client) { "new" }
     expect(value).to eq("cached")
   end
+
+  it "returns existing value when compute lock acquisition fails" do
+    store = ActiveSupport::Cache::MemoryStore.new
+    payload = { value: "cached", expires_at: Time.now + 10, stale_until: Time.now + 20 }
+    store.write("key", payload)
+
+    lock_client = Class.new do
+      def acquire(*_args) = false
+      def release(*_args); end
+    end.new
+
+    value = described_class.compute_and_store("key", 1, 1, store, 1, lock_client, lock: true) { "new" }
+    expect(value).to eq("cached")
+  end
+
+  it "computes when lock_client is false" do
+    store = ActiveSupport::Cache::MemoryStore.new
+
+    value = described_class.compute_and_store("key", 1, 1, store, 1, false, lock: true) { "value" }
+
+    expect(value).to eq("value")
+  end
+
+  it "computes when existing is invalid after lock acquisition fails" do
+    store = ActiveSupport::Cache::MemoryStore.new
+    store.write("key", "invalid")
+
+    lock_client = Class.new do
+      def acquire(*_args) = false
+      def release(*_args); end
+    end.new
+
+    value = described_class.compute_and_store("key", 1, 1, store, 1, lock_client, lock: true) { "fresh" }
+    expect(value).to eq("fresh")
+  end
+
+  it "releases lock when acquisition succeeds" do
+    store = ActiveSupport::Cache::MemoryStore.new
+    lock_client = Class.new do
+      attr_reader :released
+
+      def initialize
+        @released = false
+      end
+
+      def acquire(*_args) = true
+
+      def release(*_args)
+        @released = true
+      end
+    end.new
+
+    described_class.compute_and_store("key", 1, 1, store, 1, lock_client, lock: true) { "value" }
+
+    expect(lock_client.released).to eq(true)
+  end
+
+  it "skips refresh when refresh lock acquisition fails" do
+    store = ActiveSupport::Cache::MemoryStore.new
+    lock_client = Class.new do
+      def acquire(*_args) = false
+      def release(*_args); end
+    end.new
+
+    result = described_class.trigger_refresh("key", 1, 1, store, :sync, true, 1, lock_client) { "new" }
+    expect(result).to be_nil
+  end
+
+  it "refreshes when refresh lock acquisition succeeds" do
+    redis = Class.new do
+      def set(*_args) = true
+      def eval(*_args) = 1
+    end.new
+    store = Class.new do
+      def initialize(redis)
+        @redis = redis
+        @data = {}
+      end
+
+      def read(key)
+        @data[key]
+      end
+
+      def write(key, value, expires_in: nil)
+        @data[key] = value
+        true
+      end
+
+      def redis
+        @redis
+      end
+    end.new(redis)
+
+    value = described_class.trigger_refresh("key", 0.01, 0.01, store, :sync, true, 1, nil) { "value" }
+    expect(value).to eq("value")
+    payload = store.read("key")
+    expect(payload[:value]).to eq("value")
+  end
 end
 
 RSpec.describe Cache::SWR::Lock do
@@ -158,7 +284,16 @@ RSpec.describe Cache::SWR::Lock do
     lock = Cache::SWR::Lock::RedisLock.new(redis)
 
     expect(lock.acquire("key", "token", 1)).to eq(true)
+    expect(lock.acquire("key", "token", 1)).to eq(false)
     expect(lock.release("key", "token")).to eq(1)
+  end
+
+  it "returns 0 when release token does not match" do
+    redis = FakeRedis.new
+    lock = Cache::SWR::Lock::RedisLock.new(redis)
+
+    lock.acquire("key", "token", 1)
+    expect(lock.release("key", "other")).to eq(0)
   end
 
   it "uses #with when available" do
@@ -171,5 +306,10 @@ RSpec.describe Cache::SWR::Lock do
   it "returns false when release fails" do
     lock = Cache::SWR::Lock::RedisLock.new(ErrorRedis.new)
     expect(lock.release("key", "token")).to eq(false)
+  end
+
+  it "acquires when redis responds to set" do
+    lock = Cache::SWR::Lock::RedisLock.new(ErrorRedis.new)
+    expect(lock.acquire("key", "token", 1)).to eq(true)
   end
 end

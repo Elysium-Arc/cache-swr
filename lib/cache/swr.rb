@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require "active_support/notifications"
 require "cache/swr/version"
 require "cache/swr/lock"
 
@@ -28,7 +29,7 @@ module Cache
         end
       end
 
-      compute_and_store(key, ttl, swr, store, lock_ttl, lock_client, &block)
+      compute_and_store(key, ttl, swr, store, lock_ttl, lock_client, lock: lock, &block)
     end
 
     def self.default_store
@@ -95,4 +96,4 @@ module Cache
   end
 end
 
-require "cache/swr/railtie" if defined?(Rails)
+require "cache/swr/railtie"
