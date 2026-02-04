@@ -6,6 +6,7 @@ begin
   require "active_support/isolated_execution_state"
 rescue LoadError
 end
+require "securerandom"
 require "cache/swr/version"
 require "cache/swr/lock"
 
@@ -14,10 +15,12 @@ module Cache
     class Error < StandardError; end
 
     DEFAULT_LOCK_TTL = 5
+    VALID_REFRESH = [nil, :async, :sync].freeze
 
     def self.fetch(key, ttl:, swr:, store: nil, refresh: :async, lock: true, lock_ttl: DEFAULT_LOCK_TTL,
                    lock_client: nil, &block)
       raise ArgumentError, "block required" unless block
+      validate_refresh!(refresh)
 
       store ||= default_store
       payload = store.read(key)
@@ -46,18 +49,22 @@ module Cache
       payload.is_a?(Hash) && payload.key?(:value) && payload.key?(:expires_at) && payload.key?(:stale_until)
     end
 
-    def self.compute_and_store(key, ttl, swr, store, lock_ttl, lock_client, lock: true)
-      lock_key = lock_key_for(key)
-      acquired = false
+    def self.compute_and_store(key, ttl, swr, store, lock_ttl, lock_client, lock: true, lock_key: nil,
+                               lock_token: nil, release_lock: false)
+      lock_key ||= lock_key_for(key)
+      token = lock_token || SecureRandom.uuid
+      owns_lock = false
       if lock
         lock_client ||= Lock.default_for(store) if lock_client.nil?
         if lock_client
-          acquired = lock_client.acquire(lock_key, "compute", lock_ttl)
-          unless acquired
+          owns_lock = lock_client.acquire(lock_key, token, lock_ttl)
+          unless owns_lock
             existing = store.read(key)
             return existing[:value] if valid_payload?(existing)
           end
         end
+      elsif release_lock
+        owns_lock = true
       end
 
       value = yield
@@ -69,7 +76,7 @@ module Cache
       store.write(key, payload, expires_in: ttl + swr)
       value
     ensure
-      lock_client.release(lock_key, "compute") if lock_client && acquired
+      lock_client.release(lock_key, token) if lock_client && owns_lock
     end
 
     def self.trigger_refresh(key, ttl, swr, store, refresh, lock, lock_ttl, lock_client, &block)
@@ -78,25 +85,28 @@ module Cache
       lock_client ||= Lock.default_for(store) if lock && lock_client.nil?
       lock_key = lock_key_for(key)
 
-      acquired = false
+      token = nil
       if lock && lock_client
-        acquired = lock_client.acquire(lock_key, "refresh", lock_ttl)
-        return unless acquired
+        token = SecureRandom.uuid
+        return unless lock_client.acquire(lock_key, token, lock_ttl)
       end
 
-      if refresh == :async
-        Thread.new do
-          compute_and_store(key, ttl, swr, store, lock_ttl, lock_client, lock: lock, &block)
-        end
-      else
-        compute_and_store(key, ttl, swr, store, lock_ttl, lock_client, lock: lock, &block)
+      runner = lambda do
+        compute_and_store(key, ttl, swr, store, lock_ttl, lock_client,
+                          lock: false, lock_key: lock_key, lock_token: token,
+                          release_lock: lock && lock_client, &block)
       end
-    ensure
-      lock_client.release(lock_key, "refresh") if lock_client && acquired
+
+      refresh == :async ? Thread.new { runner.call } : runner.call
     end
 
     def self.lock_key_for(key)
       "cache-swr:lock:#{key}"
+    end
+
+    def self.validate_refresh!(refresh)
+      return if VALID_REFRESH.include?(refresh)
+      raise ArgumentError, "refresh must be :async, :sync, or nil"
     end
   end
 end
