@@ -20,6 +20,13 @@ RSpec.describe Cache::SWR do
     expect { described_class.fetch("key", ttl: 1, swr: 1, store: store, lock: false) }.to raise_error(ArgumentError)
   end
 
+  it "raises for invalid refresh values" do
+    store = ActiveSupport::Cache::MemoryStore.new
+    expect do
+      described_class.fetch("key", ttl: 1, swr: 1, store: store, refresh: :nope, lock: false) { "value" }
+    end.to raise_error(ArgumentError)
+  end
+
   it "returns cached value while fresh" do
     store = ActiveSupport::Cache::MemoryStore.new
     payload = { value: "v1", expires_at: Time.now + 10, stale_until: Time.now + 20 }
@@ -224,6 +231,32 @@ RSpec.describe Cache::SWR do
     expect(value).to eq("value")
     payload = store.read("key")
     expect(payload[:value]).to eq("value")
+  end
+
+  it "releases the refresh lock without double acquiring" do
+    store = ActiveSupport::Cache::MemoryStore.new
+    lock_client = Class.new do
+      attr_reader :acquires, :releases
+
+      def initialize
+        @acquires = 0
+        @releases = 0
+      end
+
+      def acquire(*_args)
+        @acquires += 1
+        true
+      end
+
+      def release(*_args)
+        @releases += 1
+      end
+    end.new
+
+    described_class.trigger_refresh("key", 0.01, 0.01, store, :sync, true, 1, lock_client) { "value" }
+
+    expect(lock_client.acquires).to eq(1)
+    expect(lock_client.releases).to eq(1)
   end
 end
 
